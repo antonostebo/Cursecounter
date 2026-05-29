@@ -1,1 +1,771 @@
+import { useState, useEffect, useRef } from "react";
+
+const STORAGE_KEY = "swear-v3";
+const WEEK_DAYS_SV = ["Sön","Mån","Tis","Ons","Tor","Fre","Lör"];
+const WEEK_DAYS_FULL = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"];
+const COLORS = [
+  { bg:"#FF6B6B", soft:"#FFF0F0", text:"#c0392b" },
+  { bg:"#3ECFBE", soft:"#E6FAF8", text:"#1a8a7e" },
+  { bg:"#FFB830", soft:"#FFF8E6", text:"#a07000" },
+  { bg:"#8B5CF6", soft:"#F0EAFF", text:"#5b3bbf" },
+  { bg:"#F472B6", soft:"#FFF0F8", text:"#be2d8a" },
+  { bg:"#34D399", soft:"#E8FDF4", text:"#1a7a55" },
+];
+const DEFAULT_FINE = 5;
+
+function nowIso() { return new Date().toISOString(); }
+function fmtTime(iso) { return new Date(iso).toLocaleTimeString("sv-SE",{hour:"2-digit",minute:"2-digit"}); }
+function fmtDate(iso) { return new Date(iso).toLocaleDateString("sv-SE",{day:"numeric",month:"short"}); }
+function weekdayOf(iso) { return new Date(iso).getDay(); }
+function getWeekKey(date=new Date()) {
+  const d=new Date(date), day=d.getDay();
+  const diff=d.getDate()-day+(day===0?-6:1);
+  const mon=new Date(d); mon.setDate(diff);
+  return mon.toISOString().split("T")[0];
+}
+function weekLabel(key) {
+  const s=new Date(key), e=new Date(key); e.setDate(e.getDate()+6);
+  return `${s.toLocaleDateString("sv-SE",{day:"numeric",month:"short"})} – ${e.toLocaleDateString("sv-SE",{day:"numeric",month:"short"})}`;
+}
+function isWeekOver(weekKey) {
+  const end=new Date(weekKey); end.setDate(end.getDate()+6); end.setHours(14,0,0,0);
+  return new Date()>=end;
+}
+function fmtKr(n,fine) { return `${(n*fine).toFixed(0)} kr`; }
+
+function loadData() {
+  try { const r=localStorage.getItem(STORAGE_KEY); if(r) return JSON.parse(r); } catch {}
+  return { persons:[], currentLogs:[], archivedWeeks:[], finePerSwear:DEFAULT_FINE };
+}
+function saveData(d) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(d)); } catch {} }
+
+export default function App() {
+  const [data, setData] = useState(loadData);
+  const [view, setView] = useState("home");
+  const [flash, setFlash] = useState(null);
+  const [showNewWeek, setShowNewWeek] = useState(false);
+  const [confetti, setConfetti] = useState([]);
+  const [newName, setNewName] = useState("");
+  const [editingPerson, setEditingPerson] = useState(null); // { id, name }
+  const [editName, setEditName] = useState("");
+  const [expandedWeek, setExpandedWeek] = useState(null);
+  const [statsTab, setStatsTab] = useState("heatmap");
+  const [showFineEdit, setShowFineEdit] = useState(false);
+  const [fineInput, setFineInput] = useState("");
+  const [undoEntry, setUndoEntry] = useState(null); // last logged entry for undo
+  const [showDeleteLog, setShowDeleteLog] = useState(false); // show log list for deletion
+  const hasPrompted = useRef(false);
+  const undoTimer = useRef(null);
+
+  useEffect(() => { saveData(data); }, [data]);
+
+  useEffect(() => {
+    if (!hasPrompted.current && isWeekOver(getWeekKey()) && data.currentLogs.length > 0) {
+      hasPrompted.current = true;
+      setTimeout(() => setShowNewWeek(true), 1200);
+    }
+  }, []);
+
+  const { persons, currentLogs, archivedWeeks, finePerSwear } = data;
+  const fine = finePerSwear || DEFAULT_FINE;
+  const currentWeek = getWeekKey();
+
+  // ── Counts ────────────────────────────────────────────────────────────────
+  const counts = {};
+  persons.forEach(p => counts[p.id] = 0);
+  currentLogs.forEach(l => { if (counts[l.personId] !== undefined) counts[l.personId] += 1; });
+
+  const allLogs = [...currentLogs, ...archivedWeeks.flatMap(w => w.logs)];
+  const allTimePerPerson = {};
+  persons.forEach(p => allTimePerPerson[p.id] = 0);
+  allLogs.forEach(l => { if (allTimePerPerson[l.personId] !== undefined) allTimePerPerson[l.personId] += 1; });
+
+  const heatmapData = Array.from({length:7}, () => new Array(24).fill(0));
+  allLogs.forEach(l => { if (heatmapData[l.weekday]) heatmapData[l.weekday][l.hour] = (heatmapData[l.weekday][l.hour]||0)+1; });
+  const maxHeat = Math.max(...heatmapData.flat(), 1);
+
+  const weekdayTotals = Array.from({length:7},(_,i) => allLogs.filter(l=>l.weekday===i).length);
+  const maxWd = Math.max(...weekdayTotals, 1);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const logSwear = (personId) => {
+    const entry = { id: Date.now().toString(), personId, ts: nowIso(), weekday: new Date().getDay(), hour: new Date().getHours() };
+    setData(d => ({ ...d, currentLogs: [...d.currentLogs, entry] }));
+    triggerFlash(personId);
+    // undo window
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoEntry(entry);
+    undoTimer.current = setTimeout(() => setUndoEntry(null), 5000);
+  };
+
+  const undoLast = () => {
+    if (!undoEntry) return;
+    setData(d => ({ ...d, currentLogs: d.currentLogs.filter(l => l.id !== undoEntry.id) }));
+    setUndoEntry(null);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+  };
+
+  const deleteLog = (logId) => {
+    setData(d => ({ ...d, currentLogs: d.currentLogs.filter(l => l.id !== logId) }));
+  };
+
+  const addPerson = () => {
+    const name = newName.trim(); if (!name) return;
+    const colorIdx = persons.length % COLORS.length;
+    setData(d => ({ ...d, persons: [...d.persons, { id: Date.now().toString(), name, colorIdx }] }));
+    setNewName("");
+  };
+
+  const startEditPerson = (p) => { setEditingPerson(p); setEditName(p.name); };
+
+  const savePerson = () => {
+    const name = editName.trim(); if (!name || !editingPerson) return;
+    setData(d => ({ ...d, persons: d.persons.map(p => p.id === editingPerson.id ? { ...p, name } : p) }));
+    setEditingPerson(null);
+  };
+
+  const removePerson = (id) => {
+    setData(d => ({
+      ...d,
+      persons: d.persons.filter(p => p.id !== id),
+      currentLogs: d.currentLogs.filter(l => l.personId !== id),
+      archivedWeeks: d.archivedWeeks.map(w => ({ ...w, logs: w.logs.filter(l => l.personId !== id) }))
+    }));
+  };
+
+  const saveFine = () => {
+    const v = parseFloat(fineInput.replace(",","."));
+    if (isNaN(v) || v < 0) return;
+    setData(d => ({ ...d, finePerSwear: v }));
+    setShowFineEdit(false);
+  };
+
+  const closeWeek = () => {
+    const c = {}; persons.forEach(p => c[p.id]=0);
+    currentLogs.forEach(l => { if (c[l.personId] !== undefined) c[l.personId] += 1; });
+    const sorted = [...persons].sort((a,b) => c[a.id]-c[b.id]);
+    const winner = sorted[0] || null;
+    const archive = {
+      id: Date.now().toString(), weekKey: currentWeek, label: weekLabel(currentWeek),
+      logs: currentLogs, finePerSwear: fine,
+      winner: winner ? { id: winner.id, name: winner.name } : null,
+      personSnapshot: persons.map(p => ({ ...p })),
+    };
+    setData(d => ({ ...d, currentLogs: [], archivedWeeks: [archive, ...d.archivedWeeks] }));
+    setShowNewWeek(false); setView("home");
+  };
+
+  const triggerFlash = (personId) => {
+    const emojis=["🤬","😤","💢","🫢","😬","🙊"];
+    setFlash({ personId, emoji: emojis[Math.floor(Math.random()*emojis.length)] });
+    spawnConfetti(personId);
+    setTimeout(() => setFlash(null), 900);
+  };
+
+  const spawnConfetti = (personId) => {
+    const pieces = Array.from({length:10},(_,i) => ({
+      id:`${Date.now()}-${i}`, x:20+Math.random()*60, rot:Math.random()*360,
+      scale:0.5+Math.random()*0.8, emoji:["💸","⭐","💫","✨","🌟"][Math.floor(Math.random()*5)],
+    }));
+    setConfetti(p => [...p,...pieces]);
+    setTimeout(() => setConfetti(p => p.filter(c => !pieces.find(x=>x.id===c.id))), 1400);
+  };
+
+  // ── Total fines this week ──────────────────────────────────────────────────
+  const totalFinesWeek = currentLogs.length * fine;
+  const totalSwearWeek = currentLogs.length;
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div style={s.root}>
+      <style>{CSS}</style>
+
+      {confetti.map(c => (
+        <div key={c.id} style={{position:"fixed",left:`${c.x}%`,top:"30%",fontSize:18*c.scale,
+          animation:"cfFall 1.4s forwards",pointerEvents:"none",zIndex:9999}}>
+          {c.emoji}
+        </div>
+      ))}
+
+      {/* Edit person modal */}
+      {editingPerson && (
+        <div style={s.overlay}>
+          <div style={s.modal}>
+            <div style={{fontSize:40,marginBottom:8}}>✏️</div>
+            <div style={s.modalTitle}>Ändra namn</div>
+            <input style={{...s.input, width:"100%", marginBottom:16}}
+              value={editName} onChange={e=>setEditName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&savePerson()} maxLength={20} autoFocus />
+            <div style={{display:"flex",gap:10}}>
+              <button style={s.btnSecondary} onClick={()=>setEditingPerson(null)}>Avbryt</button>
+              <button style={s.btnPrimary} onClick={savePerson}>Spara</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fine edit modal */}
+      {showFineEdit && (
+        <div style={s.overlay}>
+          <div style={s.modal}>
+            <div style={{fontSize:40,marginBottom:8}}>💰</div>
+            <div style={s.modalTitle}>Böter per svordom</div>
+            <div style={{fontSize:14,color:"#aaa",marginBottom:16}}>Nuvarande: {fine} kr</div>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              <input style={{...s.input,flex:1}} placeholder={`${fine}`}
+                value={fineInput} onChange={e=>setFineInput(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&saveFine()} type="number" min="0" />
+              <div style={{display:"flex",alignSelf:"stretch",alignItems:"center",paddingRight:4,
+                background:"#fff",border:"2px solid #F0E6D3",borderLeft:"none",borderRadius:"0 12px 12px 0",
+                marginLeft:-12,paddingLeft:4,fontSize:14,fontWeight:700,color:"#aaa"}}>kr</div>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button style={s.btnSecondary} onClick={()=>setShowFineEdit(false)}>Avbryt</button>
+              <button style={s.btnPrimary} onClick={saveFine}>Spara</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New week modal */}
+      {showNewWeek && (
+        <div style={s.overlay}>
+          <div style={s.modal}>
+            <div style={{fontSize:52}}>🎉</div>
+            <div style={s.modalTitle}>Veckan är slut!</div>
+            <div style={s.modalBody}>Vill du utse vinnare och starta en ny vecka? All data arkiveras.</div>
+            {persons.length > 0 && (() => {
+              const sorted=[...persons].sort((a,b)=>counts[a.id]-counts[b.id]);
+              const w=sorted[0]; const col=COLORS[w.colorIdx%COLORS.length];
+              return (
+                <div style={{...s.winPreview,background:col.soft,border:`2px solid ${col.bg}`}}>
+                  <span style={{fontSize:28}}>⭐</span>
+                  <div style={{textAlign:"left"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#888",letterSpacing:1,textTransform:"uppercase"}}>Veckans vinnare</div>
+                    <div style={{fontSize:22,fontFamily:"'Fredoka One',cursive",color:col.text}}>{w.name}</div>
+                    <div style={{fontSize:12,color:"#aaa"}}>{counts[w.id]} svärord · {fmtKr(counts[w.id],fine)}</div>
+                  </div>
+                </div>
+              );
+            })()}
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button style={s.btnSecondary} onClick={()=>setShowNewWeek(false)}>Senare</button>
+              <button style={s.btnPrimary} onClick={closeWeek}>Avsluta veckan ✓</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={s.header}>
+        <div style={{fontSize:40,marginBottom:4}}>🤐</div>
+        <div style={s.headerTitle}>Svärdomskassan</div>
+        <div style={s.headerSub}>{weekLabel(currentWeek)}</div>
+        {/* Week summary pill */}
+        {totalSwearWeek > 0 && (
+          <div style={s.headerPill}>
+            {totalSwearWeek} svärord · {totalFinesWeek.toFixed(0)} kr totalt
+          </div>
+        )}
+        {isWeekOver(currentWeek) && currentLogs.length > 0 && (
+          <button style={s.weekEndBtn} onClick={()=>setShowNewWeek(true)}>Avsluta veckan →</button>
+        )}
+      </div>
+
+      {/* Nav */}
+      <div style={s.nav}>
+        {[["home","🏠","Hem"],["stats","📊","Statistik"],["manage","👥","Personer"]].map(([k,ic,lb]) => (
+          <button key={k} onClick={()=>setView(k)}
+            style={{...s.navBtn,...(view===k?s.navActive:{})}}>
+            <span style={{fontSize:16}}>{ic}</span><span style={{fontSize:11}}>{lb}</span>
+          </button>
+        ))}
+      </div>
+
+      <div style={s.content}>
+
+        {/* ══ HOME ══ */}
+        {view==="home" && (
+          <div className="fadeIn">
+            {persons.length===0 ? (
+              <div style={s.empty}>
+                <div style={{fontSize:64}}>👨‍👩‍👧‍👦</div>
+                <div style={s.emptyTitle}>Inga personer än</div>
+                <div style={s.emptySub}>Lägg till familjemedlemmar under "Personer"</div>
+                <button style={s.btnPrimary} onClick={()=>setView("manage")}>Kom igång →</button>
+              </div>
+            ) : (
+              <>
+                <div style={s.label}>Tryck för att logga ett svärord</div>
+                <div style={s.grid}>
+                  {persons.map(p => {
+                    const col=COLORS[p.colorIdx%COLORS.length];
+                    const c=counts[p.id]||0;
+                    const isFlash=flash?.personId===p.id;
+                    return (
+                      <button key={p.id} onClick={()=>logSwear(p.id)}
+                        style={{...s.card,background:col.soft,borderColor:col.bg}}
+                        className={isFlash?"flashPulse card-tap":"card-tap"}>
+                        <div style={{...s.avatar,background:col.bg}}>
+                          {isFlash
+                            ? <span style={{fontSize:30}}>{flash.emoji}</span>
+                            : <span style={{fontSize:26,fontFamily:"'Fredoka One',cursive",color:"#fff"}}>{p.name[0].toUpperCase()}</span>}
+                        </div>
+                        <div style={s.cardName}>{p.name}</div>
+                        <div style={{...s.cardCount,color:c>0?col.text:"#ddd"}}>{c}</div>
+                        <div style={{...s.cardFine,color:c>0?col.bg:"#ddd"}}>{c>0?fmtKr(c,fine):"0 kr"}</div>
+                        <div style={s.cardSub}>denna vecka</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Undo toast */}
+                {undoEntry && (() => {
+                  const p=persons.find(x=>x.id===undoEntry.personId);
+                  const col=p?COLORS[p.colorIdx%COLORS.length]:COLORS[0];
+                  return (
+                    <div style={{...s.undoToast,borderColor:col.bg}}>
+                      <span style={{fontSize:13,color:"#555"}}>
+                        Registrerade svordom för <strong style={{color:col.text}}>{p?.name}</strong>
+                      </span>
+                      <button style={{...s.undoBtn,color:col.text}} onClick={undoLast}>↩ Ångra</button>
+                    </div>
+                  );
+                })()}
+
+                {/* Delete log button */}
+                {currentLogs.length > 0 && (
+                  <button style={s.deleteLogBtn} onClick={()=>setShowDeleteLog(v=>!v)}>
+                    {showDeleteLog?"Dölj lista":"🗑 Radera enskild svordom"}
+                  </button>
+                )}
+
+                {/* Log list for deletion */}
+                {showDeleteLog && currentLogs.length > 0 && (
+                  <div style={s.deleteLogBox}>
+                    <div style={s.label}>Klicka 🗑 för att radera</div>
+                    {[...currentLogs].reverse().map((l,i) => {
+                      const p=persons.find(x=>x.id===l.personId);
+                      if(!p) return null;
+                      const col=COLORS[p.colorIdx%COLORS.length];
+                      return (
+                        <div key={l.id||i} style={s.logRow}>
+                          <div style={{...s.logDot,background:col.bg}}/>
+                          <span style={{fontWeight:700,color:col.text,minWidth:60}}>{p.name}</span>
+                          <span style={s.logTime}>{WEEK_DAYS_SV[l.weekday||weekdayOf(l.ts)]} {fmtDate(l.ts)} {fmtTime(l.ts)}</span>
+                          <button style={s.rowDelBtn} onClick={()=>deleteLog(l.id)}>🗑</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Today's log (compact) */}
+                {!showDeleteLog && currentLogs.length > 0 && (() => {
+                  const today=new Date().toDateString();
+                  const todayLogs=[...currentLogs].reverse().filter(l=>new Date(l.ts).toDateString()===today);
+                  if(todayLogs.length===0) return null;
+                  return (
+                    <div style={s.recentBox}>
+                      <div style={s.label}>Idag</div>
+                      {todayLogs.slice(0,8).map((l,i) => {
+                        const p=persons.find(x=>x.id===l.personId); if(!p) return null;
+                        const col=COLORS[p.colorIdx%COLORS.length];
+                        return (
+                          <div key={i} style={s.logRow}>
+                            <div style={{...s.logDot,background:col.bg}}/>
+                            <span style={{fontWeight:700,color:col.text}}>{p.name}</span>
+                            <span style={s.logTime}>{WEEK_DAYS_SV[weekdayOf(l.ts)]} {fmtTime(l.ts)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
+                <button style={s.endWeekLink} onClick={()=>setShowNewWeek(true)}>
+                  Avsluta veckan manuellt →
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══ STATS ══ */}
+        {view==="stats" && (
+          <div className="fadeIn">
+            <div style={s.subNav}>
+              {[["heatmap","🔥 Heatmap"],["weekday","📅 Veckodag"],["archive","🗂 Arkiv"]].map(([k,lb]) => (
+                <button key={k} onClick={()=>setStatsTab(k)}
+                  style={{...s.subBtn,...(statsTab===k?s.subActive:{})}}>
+                  {lb}
+                </button>
+              ))}
+            </div>
+
+            {statsTab==="heatmap" && (
+              <div>
+                <div style={s.label}>Tid på dygnet × veckodag (alla tider)</div>
+                {allLogs.length===0 ? <div style={s.emptySub}>Ingen data ännu</div> : (
+                  <div style={s.heatmapWrap}>
+                    <div style={s.heatHourRow}>
+                      <div style={{width:34}}/>
+                      {[0,3,6,9,12,15,18,21].map(h => (
+                        <div key={h} style={s.heatHourLabel}>{h.toString().padStart(2,"0")}</div>
+                      ))}
+                    </div>
+                    {[1,2,3,4,5,6,0].map(dayIdx => (
+                      <div key={dayIdx} style={s.heatRow}>
+                        <div style={s.heatDayLabel}>{WEEK_DAYS_SV[dayIdx]}</div>
+                        {Array.from({length:24},(_,h) => {
+                          const v=heatmapData[dayIdx][h]; const intensity=v/maxHeat;
+                          const bg=intensity===0?"#F5F0EA":`rgba(255,107,107,${0.15+intensity*0.85})`;
+                          return (
+                            <div key={h} title={`${v} st`} style={{...s.heatCell,background:bg}}>
+                              {v>0&&intensity>0.5&&<span style={s.heatNum}>{v}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    <div style={s.heatLegend}>
+                      <span style={s.legendLabel}>Ingen</span>
+                      {[0.15,0.35,0.55,0.75,1].map((o,i) => (
+                        <div key={i} style={{...s.legendCell,background:`rgba(255,107,107,${o})`}}/>
+                      ))}
+                      <span style={s.legendLabel}>Mest</span>
+                    </div>
+                  </div>
+                )}
+
+                {persons.length>0 && (
+                  <>
+                    <div style={{...s.label,marginTop:24}}>Totalt per person (alla tider)</div>
+                    {[...persons].sort((a,b)=>allTimePerPerson[a.id]-allTimePerPerson[b.id]).map((p,i) => {
+                      const col=COLORS[p.colorIdx%COLORS.length];
+                      const total=allTimePerPerson[p.id]||0;
+                      const max=Math.max(...persons.map(x=>allTimePerPerson[x.id]),1);
+                      return (
+                        <div key={p.id} style={s.barRow}>
+                          {i===0&&<span style={{fontSize:16}}>⭐</span>}
+                          {i!==0&&<div style={{width:20}}/>}
+                          <div style={{...s.barAvatar,background:col.bg}}>{p.name[0]}</div>
+                          <div style={s.barName}>{p.name}</div>
+                          <div style={s.barTrack}>
+                            <div style={{...s.barFill,width:`${(total/max)*100}%`,background:col.bg}}/>
+                          </div>
+                          <div style={{...s.barNum,color:col.text}}>{total}</div>
+                          <div style={{...s.barFineNum,color:col.text}}>{fmtKr(total,fine)}</div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+
+            {statsTab==="weekday" && (
+              <div>
+                <div style={s.label}>Svärord per veckodag (alla tider)</div>
+                {allLogs.length===0 ? <div style={s.emptySub}>Ingen data ännu</div> : (
+                  <div style={s.wdGrid}>
+                    {[1,2,3,4,5,6,0].map(i => {
+                      const v=weekdayTotals[i]; const pct=(v/maxWd)*100;
+                      const isMax=v===maxWd&&v>0;
+                      return (
+                        <div key={i} style={s.wdCol}>
+                          <div style={s.wdCount}>{v}</div>
+                          <div style={{...s.wdBar,height:Math.max(pct*1.2,4),
+                            background:isMax?"#FF6B6B":"#F5C5B0"}}/>
+                          <div style={{...s.wdLabel,fontWeight:isMax?800:500,
+                            color:isMax?"#FF6B6B":"#999"}}>{WEEK_DAYS_SV[i]}</div>
+                          {isMax&&<div style={{fontSize:14}}>🔥</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{...s.label,marginTop:24}}>Fördelning per timme</div>
+                {allLogs.length===0 ? <div style={s.emptySub}>Ingen data ännu</div> : (() => {
+                  const hourTotals=Array.from({length:24},(_,h)=>allLogs.filter(l=>l.hour===h).length);
+                  const maxH=Math.max(...hourTotals,1);
+                  const peakHour=hourTotals.indexOf(Math.max(...hourTotals));
+                  return (
+                    <>
+                      <div style={s.hourGrid}>
+                        {hourTotals.map((v,h) => {
+                          const pct=(v/maxH)*100; const isPeak=v===Math.max(...hourTotals)&&v>0;
+                          return (
+                            <div key={h} style={s.hourCol} title={`${h}:00 – ${v} st`}>
+                              <div style={{...s.hourBar,height:Math.max(pct*0.8,2),
+                                background:isPeak?"#FFB830":"#F5DEB3"}}/>
+                              {h%6===0&&<div style={s.hourLabel}>{h.toString().padStart(2,"0")}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {allLogs.length>0&&(
+                        <div style={s.insightBox}>
+                          🔥 Mest aktiv tid: <strong>{peakHour.toString().padStart(2,"0")}:00</strong>
+                          {" "}på <strong>{WEEK_DAYS_FULL[weekdayTotals.indexOf(Math.max(...weekdayTotals))]}</strong>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {statsTab==="archive" && (
+              <div>
+                <div style={s.label}>Arkiverade veckor</div>
+                {archivedWeeks.length===0 && (
+                  <div style={s.emptySub}>Inga avslutade veckor ännu.</div>
+                )}
+                {archivedWeeks.map(week => {
+                  const isOpen=expandedWeek===week.id;
+                  const wc={}; week.personSnapshot.forEach(p=>wc[p.id]=0);
+                  week.logs.forEach(l=>{ if(wc[l.personId]!==undefined) wc[l.personId]+=1; });
+                  const wSorted=[...week.personSnapshot].sort((a,b)=>wc[a.id]-wc[b.id]);
+                  const maxC=Math.max(...Object.values(wc),1);
+                  const wFine=week.finePerSwear||fine;
+                  const weekTotal=week.logs.length;
+                  return (
+                    <div key={week.id} style={s.archiveCard}>
+                      <button style={s.archiveHeader} onClick={()=>setExpandedWeek(isOpen?null:week.id)}>
+                        <div>
+                          <div style={s.archiveWeekLabel}>{week.label}</div>
+                          {week.winner&&<div style={s.archiveWinner}>⭐ {week.winner.name} vann</div>}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{textAlign:"right"}}>
+                            <div style={s.archiveTotal}>{weekTotal} st</div>
+                            <div style={{fontSize:11,color:"#FFB830",fontWeight:700}}>{fmtKr(weekTotal,wFine)}</div>
+                          </div>
+                          <span style={{color:"#ccc"}}>{isOpen?"▲":"▼"}</span>
+                        </div>
+                      </button>
+                      {isOpen && (
+                        <div style={{padding:"0 16px 16px"}}>
+                          {wSorted.map((p,i) => {
+                            const col=COLORS[p.colorIdx%COLORS.length]; const c=wc[p.id];
+                            return (
+                              <div key={p.id} style={s.barRow}>
+                                {i===0&&<span style={{fontSize:14}}>⭐</span>}
+                                {i!==0&&<div style={{width:20}}/>}
+                                <div style={{...s.barAvatar,background:col.bg,width:28,height:28,fontSize:13}}>{p.name[0]}</div>
+                                <div style={s.barName}>{p.name}</div>
+                                <div style={s.barTrack}>
+                                  <div style={{...s.barFill,width:`${(c/maxC)*100}%`,background:col.bg}}/>
+                                </div>
+                                <div style={{...s.barNum,color:col.text}}>{c}</div>
+                                <div style={{...s.barFineNum,color:col.text}}>{fmtKr(c,wFine)}</div>
+                              </div>
+                            );
+                          })}
+                          <div style={{...s.label,marginTop:14}}>Alla svärord</div>
+                          <div style={{maxHeight:240,overflowY:"auto"}}>
+                            {[...week.logs].reverse().map((l,i) => {
+                              const p=week.personSnapshot.find(x=>x.id===l.personId); if(!p) return null;
+                              const col=COLORS[p.colorIdx%COLORS.length];
+                              return (
+                                <div key={i} style={s.logRow}>
+                                  <div style={{...s.logDot,background:col.bg}}/>
+                                  <span style={{fontWeight:700,color:col.text,minWidth:60}}>{p.name}</span>
+                                  <span style={s.logTime}>{WEEK_DAYS_SV[l.weekday||weekdayOf(l.ts)]} {fmtDate(l.ts)} {fmtTime(l.ts)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ MANAGE ══ */}
+        {view==="manage" && (
+          <div className="fadeIn">
+            {/* Fine setting */}
+            <div style={s.fineCard} onClick={()=>{setFineInput(String(fine));setShowFineEdit(true);}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:15,color:"#333"}}>💰 Böter per svordom</div>
+                <div style={{fontSize:12,color:"#aaa",marginTop:2}}>Används för alla beräkningar</div>
+              </div>
+              <div style={s.finePill}>{fine} kr ✏️</div>
+            </div>
+
+            <div style={{...s.label,marginTop:20}}>Lägg till person</div>
+            <div style={s.addRow}>
+              <input style={s.input} placeholder="Namn..." value={newName}
+                onChange={e=>setNewName(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&addPerson()} maxLength={20}/>
+              <button style={s.addPlusBtn} onClick={addPerson}>+</button>
+            </div>
+
+            <div style={s.label}>Familjemedlemmar</div>
+            {persons.length===0&&<div style={s.emptySub}>Inga personer än.</div>}
+            {persons.map(p => {
+              const col=COLORS[p.colorIdx%COLORS.length];
+              const total=allTimePerPerson[p.id]||0;
+              return (
+                <div key={p.id} style={{...s.manageCard,background:col.soft,borderColor:col.bg}}>
+                  <div style={{...s.avatar,background:col.bg,width:44,height:44,fontSize:20}}>
+                    {p.name[0].toUpperCase()}
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:800,fontSize:16}}>{p.name}</div>
+                    <div style={{fontSize:12,color:"#aaa"}}>{total} svärord · {fmtKr(total,fine)}</div>
+                  </div>
+                  <button style={s.editBtn} title="Ändra namn" onClick={()=>startEditPerson(p)}>✏️</button>
+                  <button style={s.delBtn} title="Ta bort" onClick={()=>{
+                    if(confirm(`Ta bort ${p.name}? All deras data raderas.`)) removePerson(p.id);
+                  }}>🗑️</button>
+                </div>
+              );
+            })}
+
+            {data.currentLogs.length>0&&(
+              <button style={{...s.dangerBtn,marginTop:28}}
+                onClick={()=>confirm("Radera pågående veckas loggar?")&&setData(d=>({...d,currentLogs:[]}))}>
+                🧹 Rensa nuvarande vecka
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#FDF8F2;}
+  @keyframes cfFall{0%{opacity:1;transform:translateY(0) rotate(0deg)}100%{opacity:0;transform:translateY(90px) rotate(400deg) scale(0.2)}}
+  @keyframes flashPulse{0%,100%{transform:scale(1)}40%{transform:scale(1.1)}}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+  .fadeIn{animation:fadeIn 0.3s ease}
+  .flashPulse{animation:flashPulse 0.9s ease!important}
+  .card-tap{transition:transform 0.12s;cursor:pointer;border:none;text-align:center;}
+  .card-tap:active{transform:scale(0.93)!important;}
+`;
+
+const s = {
+  root:{fontFamily:"'Nunito',sans-serif",background:"#FDF8F2",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:56},
+  header:{background:"linear-gradient(135deg,#FF6B6B 0%,#FF8E53 100%)",padding:"24px 20px 18px",textAlign:"center"},
+  headerTitle:{fontFamily:"'Fredoka One',cursive",fontSize:28,color:"#fff",letterSpacing:0.5},
+  headerSub:{fontSize:12,color:"rgba(255,255,255,0.8)",fontWeight:700,marginTop:3},
+  headerPill:{display:"inline-block",marginTop:8,background:"rgba(0,0,0,0.15)",borderRadius:20,
+    padding:"4px 14px",fontSize:13,color:"#fff",fontWeight:700},
+  weekEndBtn:{display:"inline-block",marginTop:8,background:"rgba(255,255,255,0.25)",border:"none",
+    borderRadius:20,padding:"6px 16px",fontSize:13,color:"#fff",fontWeight:700,fontFamily:"'Nunito',sans-serif",cursor:"pointer"},
+  nav:{display:"flex",background:"#fff",borderBottom:"2px solid #F0E6D3",position:"sticky",top:0,zIndex:20},
+  navBtn:{flex:1,border:"none",background:"transparent",fontFamily:"'Nunito',sans-serif",fontWeight:700,
+    color:"#bbb",cursor:"pointer",padding:"10px 4px",display:"flex",flexDirection:"column",alignItems:"center",
+    gap:2,borderBottom:"3px solid transparent"},
+  navActive:{color:"#FF6B6B",borderBottom:"3px solid #FF6B6B"},
+  content:{padding:"16px"},
+  label:{fontSize:11,fontWeight:800,color:"#ccc",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,marginTop:4},
+  grid:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12,marginBottom:16},
+  card:{borderRadius:20,padding:"18px 12px",display:"flex",flexDirection:"column",alignItems:"center",
+    border:"3px solid",background:"#fff",WebkitTapHighlightColor:"transparent"},
+  avatar:{width:56,height:56,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:10},
+  cardName:{fontWeight:800,fontSize:15,color:"#333",marginBottom:4},
+  cardCount:{fontFamily:"'Fredoka One',cursive",fontSize:38,lineHeight:1,marginBottom:0},
+  cardFine:{fontFamily:"'Fredoka One',cursive",fontSize:15,marginBottom:4},
+  cardSub:{fontSize:11,color:"#ccc",fontWeight:600},
+  undoToast:{background:"#fff",border:"2px solid",borderRadius:14,padding:"10px 14px",
+    display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,
+    animation:"slideUp 0.3s ease"},
+  undoBtn:{background:"none",border:"none",fontFamily:"'Nunito',sans-serif",fontWeight:800,
+    fontSize:13,cursor:"pointer",padding:"4px 8px",borderRadius:8},
+  deleteLogBtn:{display:"block",width:"100%",background:"#FFF5F5",border:"2px solid #FFD5D5",
+    borderRadius:12,padding:"10px",fontSize:13,fontFamily:"'Nunito',sans-serif",fontWeight:700,
+    color:"#FF6B6B",cursor:"pointer",marginBottom:10,textAlign:"center"},
+  deleteLogBox:{background:"#fff",borderRadius:16,padding:"14px 16px",marginBottom:12},
+  rowDelBtn:{background:"none",border:"none",fontSize:16,cursor:"pointer",marginLeft:"auto",padding:"2px 4px"},
+  recentBox:{background:"#fff",borderRadius:16,padding:"14px 16px",marginBottom:12},
+  logRow:{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:"1px solid #F5F0E8"},
+  logDot:{width:8,height:8,borderRadius:"50%",flexShrink:0},
+  logTime:{fontSize:12,color:"#bbb",fontWeight:600,marginLeft:"auto"},
+  endWeekLink:{display:"block",textAlign:"center",fontSize:12,color:"#ccc",fontWeight:700,
+    marginTop:8,background:"none",border:"none",cursor:"pointer",fontFamily:"'Nunito',sans-serif"},
+  empty:{textAlign:"center",padding:"48px 20px"},
+  emptyTitle:{fontFamily:"'Fredoka One',cursive",fontSize:22,color:"#333",marginTop:12,marginBottom:8},
+  emptySub:{fontSize:14,color:"#bbb",lineHeight:1.6,marginBottom:16},
+  overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",
+    justifyContent:"center",zIndex:1000,padding:20},
+  modal:{background:"#fff",borderRadius:24,padding:"28px 24px",maxWidth:360,width:"100%",textAlign:"center"},
+  modalTitle:{fontFamily:"'Fredoka One',cursive",fontSize:26,color:"#333",marginTop:8,marginBottom:10},
+  modalBody:{fontSize:14,color:"#888",lineHeight:1.6,marginBottom:16},
+  winPreview:{borderRadius:16,padding:"14px 18px",display:"flex",alignItems:"center",gap:14},
+  btnPrimary:{flex:1,background:"linear-gradient(135deg,#FF6B6B,#FF8E53)",color:"#fff",border:"none",
+    borderRadius:14,padding:"13px 20px",fontSize:15,fontFamily:"'Nunito',sans-serif",fontWeight:800,cursor:"pointer"},
+  btnSecondary:{flex:1,background:"#F5F0E8",color:"#aaa",border:"none",borderRadius:14,padding:"13px 20px",
+    fontSize:15,fontFamily:"'Nunito',sans-serif",fontWeight:800,cursor:"pointer"},
+  fineCard:{background:"#fff",border:"2px solid #F0E6D3",borderRadius:14,padding:"14px 16px",
+    display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"},
+  finePill:{background:"#FFF8E6",border:"2px solid #FFB830",borderRadius:20,padding:"6px 14px",
+    fontSize:15,fontWeight:800,color:"#a07000"},
+  subNav:{display:"flex",gap:6,marginBottom:16,overflowX:"auto"},
+  subBtn:{flexShrink:0,padding:"8px 14px",border:"2px solid #F0E6D3",borderRadius:20,background:"#fff",
+    fontSize:12,fontFamily:"'Nunito',sans-serif",fontWeight:700,color:"#bbb",cursor:"pointer"},
+  subActive:{background:"#FF6B6B",borderColor:"#FF6B6B",color:"#fff"},
+  heatmapWrap:{background:"#fff",borderRadius:16,padding:"14px 10px",overflowX:"auto"},
+  heatHourRow:{display:"flex",alignItems:"center",marginBottom:4},
+  heatHourLabel:{flex:"0 0 calc((100% - 34px)/24*3)",fontSize:9,color:"#bbb",textAlign:"center",fontWeight:700},
+  heatRow:{display:"flex",alignItems:"center",marginBottom:3},
+  heatDayLabel:{width:34,fontSize:11,fontWeight:700,color:"#aaa",flexShrink:0},
+  heatCell:{flex:"0 0 calc((100% - 34px)/24)",height:22,borderRadius:3,margin:"0 1px",
+    position:"relative",display:"flex",alignItems:"center",justifyContent:"center"},
+  heatNum:{fontSize:8,fontWeight:800,color:"#fff"},
+  heatLegend:{display:"flex",alignItems:"center",gap:4,marginTop:10,justifyContent:"flex-end"},
+  legendLabel:{fontSize:10,color:"#bbb",fontWeight:600},
+  legendCell:{width:16,height:16,borderRadius:3},
+  barRow:{display:"flex",alignItems:"center",gap:6,marginBottom:8},
+  barAvatar:{width:32,height:32,borderRadius:"50%",display:"flex",alignItems:"center",
+    justifyContent:"center",fontSize:15,fontFamily:"'Fredoka One',cursive",color:"#fff",flexShrink:0},
+  barName:{width:58,fontSize:12,fontWeight:700,color:"#555",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},
+  barTrack:{flex:1,height:14,background:"#F5F0E8",borderRadius:8,overflow:"hidden"},
+  barFill:{height:"100%",borderRadius:8,transition:"width 0.5s ease",minWidth:4},
+  barNum:{width:24,fontSize:13,fontWeight:800,textAlign:"right"},
+  barFineNum:{width:44,fontSize:11,fontWeight:700,textAlign:"right",color:"#aaa"},
+  insightBox:{background:"#FFF8E6",border:"2px solid #FFD93D",borderRadius:12,padding:"12px 16px",
+    fontSize:13,color:"#886000",fontWeight:600,marginTop:12},
+  wdGrid:{display:"flex",gap:6,alignItems:"flex-end",height:160,padding:"8px 4px",background:"#fff",
+    borderRadius:16,justifyContent:"space-around"},
+  wdCol:{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flex:1},
+  wdCount:{fontSize:12,fontWeight:800,color:"#888"},
+  wdBar:{width:"70%",borderRadius:"6px 6px 0 0",minHeight:4,transition:"height 0.4s ease"},
+  wdLabel:{fontSize:11},
+  hourGrid:{display:"flex",gap:1,alignItems:"flex-end",height:80,background:"#fff",borderRadius:12,
+    padding:"8px 4px 4px",overflowX:"auto"},
+  hourCol:{flex:"0 0 calc(100%/24 - 1px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end"},
+  hourBar:{width:"80%",borderRadius:"3px 3px 0 0",minHeight:2},
+  hourLabel:{fontSize:9,color:"#bbb",fontWeight:700,marginTop:2},
+  archiveCard:{background:"#fff",borderRadius:16,marginBottom:10,overflow:"hidden",border:"2px solid #F0E6D3"},
+  archiveHeader:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",
+    background:"none",border:"none",cursor:"pointer",width:"100%",fontFamily:"'Nunito',sans-serif",textAlign:"left"},
+  archiveWeekLabel:{fontWeight:800,fontSize:14,color:"#333"},
+  archiveWinner:{fontSize:12,color:"#FFB830",fontWeight:700,marginTop:2},
+  archiveTotal:{fontSize:12,fontWeight:700,color:"#aaa"},
+  addRow:{display:"flex",gap:10,marginBottom:20},
+  input:{border:"2px solid #F0E6D3",borderRadius:12,padding:"12px 16px",fontSize:16,
+    fontFamily:"'Nunito',sans-serif",outline:"none",background:"#fff"},
+  addPlusBtn:{background:"linear-gradient(135deg,#FF6B6B,#FF8E53)",color:"#fff",border:"none",
+    borderRadius:12,padding:"12px 20px",fontSize:24,fontWeight:700,cursor:"pointer",lineHeight:1},
+  manageCard:{display:"flex",alignItems:"center",gap:12,borderRadius:14,padding:"12px 14px",marginBottom:10,border:"2px solid"},
+  editBtn:{background:"transparent",border:"none",fontSize:18,cursor:"pointer",padding:"4px 6px"},
+  delBtn:{background:"transparent",border:"none",fontSize:18,cursor:"pointer",padding:"4px 6px"},
+  dangerBtn:{background:"#FFF0F0",border:"2px solid #FFD5D5",borderRadius:12,padding:"12px 20px",
+    fontSize:14,fontFamily:"'Nunito',sans-serif",fontWeight:700,color:"#FF6B6B",cursor:"pointer",width:"100%"},
+};
 
