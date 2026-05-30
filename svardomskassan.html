@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Svärdomskassan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{background:#FDF8F2;font-family:'Nunito',sans-serif;min-height:100vh;}
+  :root{
+    --red:#FF6B6B;--orange:#FF8E53;--teal:#3ECFBE;--yellow:#FFB830;
+    --purple:#8B5CF6;--pink:#F472B6;--green:#34D399;
+  }
+  @keyframes cfFall{0%{opacity:1;transform:translateY(0) rotate(0deg) scale(1)}100%{opacity:0;transform:translateY(100px) rotate(420deg) scale(0.1)}}
+  @keyframes flashPulse{0%,100%{transform:scale(1)}40%{transform:scale(1.09)}}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes slideUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes wiggle{0%,100%{transform:rotate(0)}25%{transform:rotate(-7deg)}75%{transform:rotate(7deg)}}
+
+  .app{max-width:480px;margin:0 auto;padding-bottom:60px;}
+
+  /* Header */
+  .header{background:linear-gradient(135deg,var(--red) 0%,var(--orange) 100%);padding:24px 20px 18px;text-align:center;}
+  .header-logo{font-size:40px;margin-bottom:4px;}
+  .header-title{font-family:'Fredoka One',cursive;font-size:28px;color:#fff;letter-spacing:.5px;}
+  .header-sub{font-size:12px;color:rgba(255,255,255,.8);font-weight:700;margin-top:3px;}
+  .header-pill{display:inline-block;margin-top:8px;background:rgba(0,0,0,.15);border-radius:20px;padding:4px 14px;font-size:13px;color:#fff;font-weight:700;}
+  .week-end-btn{display:inline-block;margin-top:8px;background:rgba(255,255,255,.25);border:none;border-radius:20px;padding:6px 16px;font-size:13px;color:#fff;font-weight:700;font-family:'Nunito',sans-serif;cursor:pointer;}
+
+  /* Nav */
+  .nav{display:flex;background:#fff;border-bottom:2px solid #F0E6D3;position:sticky;top:0;z-index:20;}
+  .nav-btn{flex:1;border:none;background:transparent;font-family:'Nunito',sans-serif;font-weight:700;color:#bbb;cursor:pointer;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:2px;border-bottom:3px solid transparent;font-size:11px;}
+  .nav-btn .icon{font-size:16px;}
+  .nav-btn.active{color:var(--red);border-bottom:3px solid var(--red);}
+
+  /* Content */
+  .content{padding:16px;}
+  .view{display:none;animation:fadeIn .3s ease;}
+  .view.active{display:block;}
+  .label{font-size:11px;font-weight:800;color:#ccc;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;margin-top:4px;}
+
+  /* Person grid */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px;}
+  .person-card{border-radius:20px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;border:3px solid;background:#fff;cursor:pointer;transition:transform .12s;width:100%;}
+  .person-card:active{transform:scale(.93);}
+  .person-card.flash{animation:flashPulse .9s ease;}
+  .avatar{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:10px;font-family:'Fredoka One',cursive;font-size:26px;color:#fff;}
+  .card-name{font-weight:800;font-size:15px;color:#333;margin-bottom:4px;}
+  .card-count{font-family:'Fredoka One',cursive;font-size:38px;line-height:1;margin-bottom:0;}
+  .card-fine{font-family:'Fredoka One',cursive;font-size:15px;margin-bottom:4px;}
+  .card-sub{font-size:11px;color:#ccc;font-weight:600;}
+
+  /* Undo toast */
+  .undo-toast{background:#fff;border:2px solid;border-radius:14px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;animation:slideUp .3s ease;}
+  .undo-toast span{font-size:13px;color:#555;}
+  .undo-btn{background:none;border:none;font-family:'Nunito',sans-serif;font-weight:800;font-size:13px;cursor:pointer;padding:4px 8px;border-radius:8px;}
+
+  /* Delete log */
+  .delete-log-btn{display:block;width:100%;background:#FFF5F5;border:2px solid #FFD5D5;border-radius:12px;padding:10px;font-size:13px;font-family:'Nunito',sans-serif;font-weight:700;color:var(--red);cursor:pointer;margin-bottom:10px;text-align:center;}
+  .delete-log-box{background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:12px;}
+  .log-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #F5F0E8;}
+  .log-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .log-name{font-weight:700;font-size:13px;min-width:60px;}
+  .log-time{font-size:12px;color:#bbb;font-weight:600;margin-left:auto;}
+  .row-del-btn{background:none;border:none;font-size:16px;cursor:pointer;padding:2px 4px;margin-left:4px;}
+
+  /* Recent box */
+  .recent-box{background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:12px;}
+  .end-week-link{display:block;text-align:center;font-size:12px;color:#ccc;font-weight:700;margin-top:8px;background:none;border:none;cursor:pointer;font-family:'Nunito',sans-serif;}
+
+  /* Empty state */
+  .empty{text-align:center;padding:48px 20px;}
+  .empty-emoji{font-size:64px;}
+  .empty-title{font-family:'Fredoka One',cursive;font-size:22px;color:#333;margin-top:12px;margin-bottom:8px;}
+  .empty-sub{font-size:14px;color:#bbb;line-height:1.6;margin-bottom:20px;}
+
+  /* Buttons */
+  .btn-primary{flex:1;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff;border:none;border-radius:14px;padding:13px 20px;font-size:15px;font-family:'Nunito',sans-serif;font-weight:800;cursor:pointer;}
+  .btn-secondary{flex:1;background:#F5F0E8;color:#aaa;border:none;border-radius:14px;padding:13px 20px;font-size:15px;font-family:'Nunito',sans-serif;font-weight:800;cursor:pointer;}
+  .btn-row{display:flex;gap:10px;margin-top:16px;}
+
+  /* Modals */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;display:none;}
+  .overlay.open{display:flex;}
+  .modal{background:#fff;border-radius:24px;padding:28px 24px;max-width:360px;width:100%;text-align:center;}
+  .modal-emoji{font-size:52px;}
+  .modal-title{font-family:'Fredoka One',cursive;font-size:26px;color:#333;margin-top:8px;margin-bottom:10px;}
+  .modal-body{font-size:14px;color:#888;line-height:1.6;margin-bottom:16px;}
+  .win-preview{border-radius:16px;padding:14px 18px;display:flex;align-items:center;gap:14px;text-align:left;margin-top:12px;}
+  .win-preview-star{font-size:28px;animation:wiggle 2s infinite;display:inline-block;}
+  .win-preview-label{font-size:11px;font-weight:700;color:#888;letter-spacing:1px;text-transform:uppercase;}
+  .win-preview-name{font-family:'Fredoka One',cursive;font-size:22px;}
+  .win-preview-sub{font-size:12px;color:#aaa;}
+  .confirm-msg{font-size:15px;color:#555;margin-bottom:4px;line-height:1.5;}
+
+  /* Stats sub-nav */
+  .sub-nav{display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;padding-bottom:4px;}
+  .sub-btn{flex-shrink:0;padding:8px 14px;border:2px solid #F0E6D3;border-radius:20px;background:#fff;font-size:12px;font-family:'Nunito',sans-serif;font-weight:700;color:#bbb;cursor:pointer;}
+  .sub-btn.active{background:var(--red);border-color:var(--red);color:#fff;}
+  .stats-tab{display:none;}
+  .stats-tab.active{display:block;}
+
+  /* Heatmap */
+  .heatmap-wrap{background:#fff;border-radius:16px;padding:14px 10px;overflow-x:auto;}
+  .heat-hour-row{display:flex;align-items:center;margin-bottom:4px;}
+  .heat-hour-spacer{width:34px;flex-shrink:0;}
+  .heat-hour-label{flex:0 0 calc((100% - 34px)/8);font-size:9px;color:#bbb;text-align:center;font-weight:700;}
+  .heat-row{display:flex;align-items:center;margin-bottom:3px;}
+  .heat-day-label{width:34px;font-size:11px;font-weight:700;color:#aaa;flex-shrink:0;}
+  .heat-cells{display:flex;flex:1;gap:1px;}
+  .heat-cell{flex:1;height:22px;border-radius:3px;position:relative;display:flex;align-items:center;justify-content:center;min-width:0;}
+  .heat-num{font-size:8px;font-weight:800;color:#fff;}
+  .heat-legend{display:flex;align-items:center;gap:4px;margin-top:10px;justify-content:flex-end;}
+  .legend-label{font-size:10px;color:#bbb;font-weight:600;}
+  .legend-cell{width:16px;height:16px;border-radius:3px;}
+
+  /* Bar rows */
+  .bar-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
+  .bar-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-family:'Fredoka One',cursive;color:#fff;flex-shrink:0;}
+  .bar-name{width:58px;font-size:12px;font-weight:700;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bar-track{flex:1;height:14px;background:#F5F0E8;border-radius:8px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:8px;transition:width .5s ease;min-width:4px;}
+  .bar-num{width:24px;font-size:13px;font-weight:800;text-align:right;}
+  .bar-fine{width:44px;font-size:11px;font-weight:700;text-align:right;color:#aaa;}
+
+  /* Weekday chart */
+  .wd-grid{display:flex;gap:6px;align-items:flex-end;height:160px;padding:8px 4px;background:#fff;border-radius:16px;justify-content:space-around;margin-bottom:16px;}
+  .wd-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;}
+  .wd-count{font-size:12px;font-weight:800;color:#888;}
+  .wd-bar{width:70%;border-radius:6px 6px 0 0;min-height:4px;transition:height .4s ease;}
+  .wd-label{font-size:11px;}
+
+  /* Hour chart */
+  .hour-grid{display:flex;gap:1px;align-items:flex-end;height:80px;background:#fff;border-radius:12px;padding:8px 4px 4px;overflow-x:auto;margin-bottom:8px;}
+  .hour-col{flex:0 0 calc(100%/24 - 1px);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;}
+  .hour-bar{width:80%;border-radius:3px 3px 0 0;min-height:2px;}
+  .hour-label{font-size:9px;color:#bbb;font-weight:700;margin-top:2px;}
+
+  /* Insight box */
+  .insight-box{background:#FFF8E6;border:2px solid #FFD93D;border-radius:12px;padding:12px 16px;font-size:13px;color:#886000;font-weight:600;margin-top:12px;}
+
+  /* Archive */
+  .archive-card{background:#fff;border-radius:16px;margin-bottom:10px;overflow:hidden;border:2px solid #F0E6D3;}
+  .archive-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:none;border:none;cursor:pointer;width:100%;font-family:'Nunito',sans-serif;text-align:left;}
+  .archive-week-label{font-weight:800;font-size:14px;color:#333;}
+  .archive-winner{font-size:12px;color:#FFB830;font-weight:700;margin-top:2px;}
+  .archive-meta{display:flex;align-items:center;gap:8px;}
+  .archive-total{font-size:12px;font-weight:700;color:#aaa;}
+  .archive-fine{font-size:11px;color:#FFB830;font-weight:700;}
+  .archive-body{display:none;padding:0 16px 16px;}
+  .archive-body.open{display:block;}
+
+  /* Manage */
+  .fine-card{background:#fff;border:2px solid #F0E6D3;border-radius:14px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:8px;}
+  .fine-pill{background:#FFF8E6;border:2px solid #FFB830;border-radius:20px;padding:6px 14px;font-size:15px;font-weight:800;color:#a07000;}
+  .add-row{display:flex;gap:10px;margin-bottom:20px;}
+  .input{border:2px solid #F0E6D3;border-radius:12px;padding:12px 16px;font-size:16px;font-family:'Nunito',sans-serif;outline:none;background:#fff;}
+  .add-plus-btn{background:linear-gradient(135deg,var(--red),var(--orange));color:#fff;border:none;border-radius:12px;padding:12px 20px;font-size:24px;font-weight:700;cursor:pointer;line-height:1;}
+  .manage-card{display:flex;align-items:center;gap:12px;border-radius:14px;padding:12px 14px;margin-bottom:10px;border:2px solid;}
+  .edit-btn,.del-btn{background:transparent;border:none;font-size:18px;cursor:pointer;padding:4px 6px;}
+  .danger-btn{background:#FFF0F0;border:2px solid #FFD5D5;border-radius:12px;padding:12px 20px;font-size:14px;font-family:'Nunito',sans-serif;font-weight:700;color:var(--red);cursor:pointer;width:100%;margin-top:28px;}
+
+  /* Confetti */
+  .confetti-piece{position:fixed;pointer-events:none;z-index:9999;animation:cfFall 1.4s forwards;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- CONFETTI CONTAINER -->
+  <div id="confetti-container"></div>
+
+  <!-- MODALS -->
+  <div class="overlay" id="modal-edit-person">
+    <div class="modal">
+      <div class="modal-emoji">✏️</div>
+      <div class="modal-title">Ändra namn</div>
+      <input class="input" id="edit-name-input" style="width:100%;margin-bottom:16px;" maxlength="20" placeholder="Nytt namn...">
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="closeModal('modal-edit-person')">Avbryt</button>
+        <button class="btn-primary" onclick="savePerson()">Spara</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="modal-confirm">
+    <div class="modal">
+      <div class="modal-emoji" id="confirm-emoji">⚠️</div>
+      <div class="modal-title" id="confirm-title">Är du säker?</div>
+      <div class="confirm-msg" id="confirm-msg"></div>
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="closeModal('modal-confirm')">Avbryt</button>
+        <button class="btn-primary" id="confirm-ok-btn" style="background:linear-gradient(135deg,#FF6B6B,#c0392b);">Ta bort</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="modal-edit-log">
+    <div class="modal">
+      <div class="modal-emoji">🕐</div>
+      <div class="modal-title">Ändra tid</div>
+      <div id="edit-log-person-badge" style="display:inline-flex;align-items:center;gap:8px;border-radius:20px;padding:6px 14px;margin-bottom:18px;font-weight:800;font-size:14px;"></div>
+      <div style="display:flex;flex-direction:column;gap:12px;text-align:left;margin-bottom:4px;">
+        <div>
+          <div class="label" style="margin-bottom:6px;">Datum</div>
+          <input class="input" id="edit-log-date" type="date" style="width:100%;">
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px;">Klockslag</div>
+          <input class="input" id="edit-log-time" type="time" style="width:100%;">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="closeModal('modal-edit-log')">Avbryt</button>
+        <button class="btn-primary" onclick="saveLogEdit()">Spara</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="modal-fine">
+    <div class="modal">
+      <div class="modal-emoji">💰</div>
+      <div class="modal-title">Böter per svordom</div>
+      <div id="fine-current-label" style="font-size:14px;color:#aaa;margin-bottom:16px;"></div>
+      <input class="input" id="fine-input" style="width:100%;margin-bottom:16px;" type="number" min="0" placeholder="Ange belopp">
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="closeModal('modal-fine')">Avbryt</button>
+        <button class="btn-primary" onclick="saveFine()">Spara</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="modal-new-week">
+    <div class="modal">
+      <div class="modal-emoji">🎉</div>
+      <div class="modal-title">Veckan är slut!</div>
+      <div class="modal-body">Vill du utse vinnare och starta en ny vecka? All data arkiveras.</div>
+      <div id="week-winner-preview"></div>
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="closeModal('modal-new-week')">Senare</button>
+        <button class="btn-primary" onclick="closeWeek()">Avsluta veckan ✓</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-logo">🤐</div>
+    <div class="header-title">Svärdomskassan</div>
+    <div class="header-sub" id="header-week-label"></div>
+    <div id="header-pill" class="header-pill" style="display:none;"></div>
+    <button class="week-end-btn" id="header-end-btn" style="display:none;" onclick="openModal('modal-new-week')">Avsluta veckan →</button>
+  </div>
+
+  <!-- NAV -->
+  <div class="nav">
+    <button class="nav-btn active" data-view="home" onclick="switchView('home')"><span class="icon">🏠</span>Hem</button>
+    <button class="nav-btn" data-view="stats" onclick="switchView('stats')"><span class="icon">📊</span>Statistik</button>
+    <button class="nav-btn" data-view="manage" onclick="switchView('manage')"><span class="icon">👥</span>Personer</button>
+  </div>
+
+  <div class="content">
+
+    <!-- HOME VIEW -->
+    <div class="view active" id="view-home">
+      <div id="home-empty" class="empty" style="display:none;">
+        <div class="empty-emoji">👨‍👩‍👧‍👦</div>
+        <div class="empty-title">Inga personer än</div>
+        <div class="empty-sub">Lägg till familjemedlemmar under "Personer"</div>
+        <button class="btn-primary" onclick="switchView('manage')" style="display:inline-block;max-width:200px;">Kom igång →</button>
+      </div>
+      <div id="home-content">
+        <div class="label">Tryck för att logga ett svärord</div>
+        <div class="grid" id="person-grid"></div>
+        <div id="undo-toast" class="undo-toast" style="display:none;"></div>
+        <button class="delete-log-btn" id="delete-log-btn" style="display:none;" onclick="toggleDeleteLog()">✏️ Redigera / radera svärord</button>
+        <div class="delete-log-box" id="delete-log-box" style="display:none;">
+          <div class="label">Klicka 🗑 för att radera</div>
+          <div id="delete-log-list"></div>
+        </div>
+        <div class="recent-box" id="today-box" style="display:none;">
+          <div class="label">Idag</div>
+          <div id="today-list"></div>
+        </div>
+        <button class="end-week-link" onclick="openModal('modal-new-week')">Avsluta veckan manuellt →</button>
+      </div>
+    </div>
+
+    <!-- STATS VIEW -->
+    <div class="view" id="view-stats">
+      <div class="sub-nav">
+        <button class="sub-btn active" data-stab="heatmap" onclick="switchStatsTab('heatmap')">🔥 Heatmap</button>
+        <button class="sub-btn" data-stab="weekday" onclick="switchStatsTab('weekday')">📅 Veckodag</button>
+        <button class="sub-btn" data-stab="archive" onclick="switchStatsTab('archive')">🗂 Arkiv</button>
+      </div>
+
+      <div class="stats-tab active" id="stab-heatmap">
+        <div class="label">Tid på dygnet × veckodag (alla tider)</div>
+        <div id="heatmap-empty" class="empty-sub" style="display:none;">Ingen data ännu</div>
+        <div class="heatmap-wrap" id="heatmap-wrap"></div>
+        <div style="margin-top:24px;">
+          <div class="label">Totalt per person (alla tider)</div>
+          <div id="alltime-bars"></div>
+        </div>
+      </div>
+
+      <div class="stats-tab" id="stab-weekday">
+        <div class="label">Svärord per veckodag (alla tider)</div>
+        <div id="weekday-empty" class="empty-sub" style="display:none;">Ingen data ännu</div>
+        <div class="wd-grid" id="wd-chart"></div>
+        <div class="label" style="margin-top:16px;">Fördelning per timme</div>
+        <div class="hour-grid" id="hour-chart"></div>
+        <div id="insight-box" class="insight-box" style="display:none;"></div>
+      </div>
+
+      <div class="stats-tab" id="stab-archive">
+        <div class="label">Arkiverade veckor</div>
+        <div id="archive-empty" class="empty-sub" style="display:none;">Inga avslutade veckor ännu.</div>
+        <div id="archive-list"></div>
+      </div>
+    </div>
+
+    <!-- MANAGE VIEW -->
+    <div class="view" id="view-manage">
+      <div class="fine-card" onclick="openFineModal()">
+        <div>
+          <div style="font-weight:800;font-size:15px;color:#333;">💰 Böter per svordom</div>
+          <div style="font-size:12px;color:#aaa;margin-top:2px;">Används för alla beräkningar</div>
+        </div>
+        <div class="fine-pill" id="fine-pill">5 kr ✏️</div>
+      </div>
+
+      <div class="label" style="margin-top:20px;">Lägg till person</div>
+      <div class="add-row">
+        <input class="input" id="new-name-input" style="flex:1;" placeholder="Namn..." maxlength="20"
+          onkeydown="if(event.key==='Enter') addPerson()">
+        <button class="add-plus-btn" onclick="addPerson()">+</button>
+      </div>
+
+      <div class="label">Familjemedlemmar</div>
+      <div id="manage-list"></div>
+      <div id="manage-empty" class="empty-sub" style="display:none;">Inga personer än.</div>
+
+      <button class="danger-btn" id="clear-week-btn" style="display:none;"
+        onclick="showConfirm('🧹','Rensa nuvarande vecka?','Alla svärord den här veckan raderas permanent.','Rensa',()=>{ state.currentLogs=[]; save(); render(); })">
+        🧹 Rensa nuvarande vecka
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── Data ────────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'swear-v3-html';
+const WEEK_DAYS = ['Sön','Mån','Tis','Ons','Tor','Fre','Lör'];
+const WEEK_DAYS_FULL = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+const COLORS = [
+  {bg:'#FF6B6B',soft:'#FFF0F0',text:'#c0392b'},
+  {bg:'#3ECFBE',soft:'#E6FAF8',text:'#1a8a7e'},
+  {bg:'#FFB830',soft:'#FFF8E6',text:'#a07000'},
+  {bg:'#8B5CF6',soft:'#F0EAFF',text:'#5b3bbf'},
+  {bg:'#F472B6',soft:'#FFF0F8',text:'#be2d8a'},
+  {bg:'#34D399',soft:'#E8FDF4',text:'#1a7a55'},
+];
+
+let state = { persons:[], currentLogs:[], archivedWeeks:[], finePerSwear:5 };
+let editingPersonId = null;
+let undoEntry = null;
+let undoTimer = null;
+let showDeleteLog = false;
+
+function load() {
+  try { const r = localStorage.getItem(STORAGE_KEY); if (r) state = JSON.parse(r); } catch {}
+  if (!state.finePerSwear) state.finePerSwear = 5;
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function nowIso() { return new Date().toISOString(); }
+function fmtTime(iso) { return new Date(iso).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}); }
+function fmtDate(iso) { return new Date(iso).toLocaleDateString('sv-SE',{day:'numeric',month:'short'}); }
+function weekdayOf(iso) { return new Date(iso).getDay(); }
+function fmtKr(n, fine) { return (n * (fine||state.finePerSwear)).toFixed(0) + ' kr'; }
+
+function getWeekKey(date) {
+  const d = new Date(date||Date.now());
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day===0 ? -6 : 1);
+  const mon = new Date(d); mon.setDate(diff);
+  return mon.toISOString().split('T')[0];
+}
+function weekLabel(key) {
+  const s = new Date(key), e = new Date(key); e.setDate(e.getDate()+6);
+  return s.toLocaleDateString('sv-SE',{day:'numeric',month:'short'}) + ' – ' +
+         e.toLocaleDateString('sv-SE',{day:'numeric',month:'short'});
+}
+function isWeekOver() {
+  const key = getWeekKey();
+  const end = new Date(key); end.setDate(end.getDate()+6); end.setHours(14,0,0,0);
+  return new Date() >= end;
+}
+function col(p) { return COLORS[p.colorIdx % COLORS.length]; }
+function getCounts() {
+  const c = {};
+  state.persons.forEach(p => c[p.id] = 0);
+  state.currentLogs.forEach(l => { if (c[l.personId] !== undefined) c[l.personId] += 1; });
+  return c;
+}
+function getAllTimeCounts() {
+  const allLogs = [...state.currentLogs, ...state.archivedWeeks.flatMap(w=>w.logs)];
+  const c = {};
+  state.persons.forEach(p => c[p.id] = 0);
+  allLogs.forEach(l => { if (c[l.personId] !== undefined) c[l.personId] += 1; });
+  return c;
+}
+
+// ─── Navigation ──────────────────────────────────────────────────────────────
+function switchView(v) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  document.querySelector('[data-view="'+v+'"]').classList.add('active');
+  render();
+}
+function switchStatsTab(t) {
+  document.querySelectorAll('.stats-tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.sub-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('stab-'+t).classList.add('active');
+  document.querySelector('[data-stab="'+t+'"]').classList.add('active');
+  renderStats();
+}
+
+// ─── Modals ──────────────────────────────────────────────────────────────────
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  if (id === 'modal-new-week') renderNewWeekModal();
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function showConfirm(emoji, title, msg, okLabel, onOk) {
+  document.getElementById('confirm-emoji').textContent = emoji;
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-msg').textContent = msg;
+  const btn = document.getElementById('confirm-ok-btn');
+  btn.textContent = okLabel;
+  btn.onclick = () => { closeModal('modal-confirm'); onOk(); };
+  openModal('modal-confirm');
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────────────
+function logSwear(personId) {
+  const entry = { id: Date.now().toString(), personId, ts: nowIso(),
+    weekday: new Date().getDay(), hour: new Date().getHours() };
+  state.currentLogs.push(entry);
+  save();
+  triggerFlash(personId, entry);
+  render();
+}
+
+function triggerFlash(personId, entry) {
+  const emojis = ['🤬','😤','💢','🫢','😬','🙊'];
+  const emoji = emojis[Math.floor(Math.random()*emojis.length)];
+  const card = document.querySelector('[data-person-id="'+personId+'"]');
+  if (card) {
+    card.classList.add('flash');
+    const av = card.querySelector('.avatar');
+    if (av) { av.dataset.orig = av.textContent; av.textContent = emoji; }
+    setTimeout(() => {
+      card.classList.remove('flash');
+      if (av && av.dataset.orig) av.textContent = av.dataset.orig;
+      render();
+    }, 900);
+  }
+  spawnConfetti(personId);
+  // undo
+  if (undoTimer) clearTimeout(undoTimer);
+  undoEntry = entry;
+  undoTimer = setTimeout(() => { undoEntry = null; renderUndoToast(); }, 5000);
+  renderUndoToast();
+}
+
+function undoLast() {
+  if (!undoEntry) return;
+  state.currentLogs = state.currentLogs.filter(l => l.id !== undoEntry.id);
+  undoEntry = null;
+  if (undoTimer) clearTimeout(undoTimer);
+  save(); render();
+}
+
+function deleteLog(logId) {
+  state.currentLogs = state.currentLogs.filter(l => l.id !== logId);
+  save(); render();
+}
+
+let editingLogId = null;
+
+function editLog(logId) {
+  const l = state.currentLogs.find(x => x.id === logId); if (!l) return;
+  const p = state.persons.find(x => x.id === l.personId);
+  editingLogId = logId;
+  // Set badge
+  const badge = document.getElementById('edit-log-person-badge');
+  if (p) {
+    const c = col(p);
+    badge.style.background = c.soft;
+    badge.style.border = '2px solid ' + c.bg;
+    badge.style.color = c.text;
+    badge.textContent = p.name;
+  }
+  // Pre-fill date and time from existing ts
+  const d = new Date(l.ts);
+  const dateStr = d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0');
+  const timeStr = String(d.getHours()).padStart(2,'0') + ':' +
+    String(d.getMinutes()).padStart(2,'0');
+  document.getElementById('edit-log-date').value = dateStr;
+  document.getElementById('edit-log-time').value = timeStr;
+  openModal('modal-edit-log');
+}
+
+function saveLogEdit() {
+  const dateVal = document.getElementById('edit-log-date').value;
+  const timeVal = document.getElementById('edit-log-time').value;
+  if (!dateVal || !timeVal || !editingLogId) return;
+  const newTs = new Date(dateVal + 'T' + timeVal + ':00').toISOString();
+  const newWeekday = new Date(newTs).getDay();
+  const newHour = new Date(newTs).getHours();
+  state.currentLogs = state.currentLogs.map(l =>
+    l.id === editingLogId
+      ? { ...l, ts: newTs, weekday: newWeekday, hour: newHour }
+      : l
+  );
+  editingLogId = null;
+  closeModal('modal-edit-log');
+  save(); render();
+}
+
+function addPerson() {
+  const input = document.getElementById('new-name-input');
+  const name = input.value.trim(); if (!name) return;
+  const colorIdx = state.persons.length % COLORS.length;
+  state.persons.push({ id: Date.now().toString(), name, colorIdx });
+  input.value = '';
+  save(); render();
+}
+
+function startEditPerson(id) {
+  editingPersonId = id;
+  const p = state.persons.find(x => x.id === id);
+  document.getElementById('edit-name-input').value = p ? p.name : '';
+  openModal('modal-edit-person');
+  setTimeout(() => document.getElementById('edit-name-input').focus(), 100);
+}
+
+function savePerson() {
+  const name = document.getElementById('edit-name-input').value.trim();
+  if (!name || !editingPersonId) return;
+  const p = state.persons.find(x => x.id === editingPersonId);
+  if (p) p.name = name;
+  editingPersonId = null;
+  closeModal('modal-edit-person');
+  save(); render();
+}
+
+function removePerson(id) {
+  const p = state.persons.find(x => x.id === id);
+  showConfirm(
+    '🗑️',
+    'Ta bort ' + (p ? p.name : 'person') + '?',
+    'All deras loggade data raderas permanent.',
+    'Ta bort',
+    () => {
+      state.persons = state.persons.filter(x => x.id !== id);
+      state.currentLogs = state.currentLogs.filter(l => l.personId !== id);
+      state.archivedWeeks = state.archivedWeeks.map(w => ({ ...w, logs: w.logs.filter(l => l.personId !== id) }));
+      save(); render();
+    }
+  );
+}
+
+function openFineModal() {
+  document.getElementById('fine-input').value = state.finePerSwear;
+  document.getElementById('fine-current-label').textContent = 'Nuvarande: ' + state.finePerSwear + ' kr';
+  openModal('modal-fine');
+  setTimeout(() => document.getElementById('fine-input').focus(), 100);
+}
+
+function saveFine() {
+  const v = parseFloat(document.getElementById('fine-input').value);
+  if (isNaN(v) || v < 0) return;
+  state.finePerSwear = v;
+  closeModal('modal-fine');
+  save(); render();
+}
+
+function closeWeek() {
+  const counts = getCounts();
+  const sorted = [...state.persons].sort((a,b) => counts[a.id]-counts[b.id]);
+  const winner = sorted[0] || null;
+  const archive = {
+    id: Date.now().toString(), weekKey: getWeekKey(),
+    label: weekLabel(getWeekKey()), logs: [...state.currentLogs],
+    finePerSwear: state.finePerSwear,
+    winner: winner ? { id:winner.id, name:winner.name } : null,
+    personSnapshot: state.persons.map(p => ({...p})),
+  };
+  state.archivedWeeks.unshift(archive);
+  state.currentLogs = [];
+  closeModal('modal-new-week');
+  save(); render();
+}
+
+function toggleDeleteLog() {
+  showDeleteLog = !showDeleteLog;
+  render();
+}
+
+// ─── Confetti ─────────────────────────────────────────────────────────────────
+function spawnConfetti(personId) {
+  const container = document.getElementById('confetti-container');
+  const emojis = ['💸','⭐','💫','✨','🌟'];
+  for (let i = 0; i < 10; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-piece';
+    el.textContent = emojis[Math.floor(Math.random()*emojis.length)];
+    el.style.left = (20 + Math.random()*60) + '%';
+    el.style.top = '30%';
+    const scale = 0.5 + Math.random()*0.8;
+    el.style.fontSize = (18*scale) + 'px';
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 1500);
+  }
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  renderHeader();
+  renderHome();
+  renderManage();
+  renderStats();
+}
+
+function renderHeader() {
+  const fine = state.finePerSwear;
+  document.getElementById('header-week-label').textContent = weekLabel(getWeekKey());
+  const total = state.currentLogs.length;
+  const pill = document.getElementById('header-pill');
+  if (total > 0) {
+    pill.style.display = 'inline-block';
+    pill.textContent = total + ' svärord · ' + fmtKr(total, fine);
+  } else { pill.style.display = 'none'; }
+  const endBtn = document.getElementById('header-end-btn');
+  endBtn.style.display = (isWeekOver() && total > 0) ? 'inline-block' : 'none';
+}
+
+function renderNewWeekModal() {
+  const counts = getCounts();
+  const sorted = [...state.persons].sort((a,b) => counts[a.id]-counts[b.id]);
+  const preview = document.getElementById('week-winner-preview');
+  if (!sorted.length) { preview.innerHTML=''; return; }
+  const w = sorted[0]; const c = col(w);
+  preview.innerHTML = `<div class="win-preview" style="background:${c.soft};border:2px solid ${c.bg};">
+    <span class="win-preview-star">⭐</span>
+    <div>
+      <div class="win-preview-label">Veckans vinnare</div>
+      <div class="win-preview-name" style="color:${c.text};">${w.name}</div>
+      <div class="win-preview-sub">${counts[w.id]} svärord · ${fmtKr(counts[w.id])}</div>
+    </div>
+  </div>`;
+}
+
+function renderHome() {
+  const hasPeople = state.persons.length > 0;
+  document.getElementById('home-empty').style.display = hasPeople ? 'none' : 'block';
+  document.getElementById('home-content').style.display = hasPeople ? 'block' : 'none';
+  if (!hasPeople) return;
+
+  const counts = getCounts();
+  const fine = state.finePerSwear;
+
+  // Person grid
+  const grid = document.getElementById('person-grid');
+  grid.innerHTML = '';
+  state.persons.forEach(p => {
+    const c = col(p); const count = counts[p.id] || 0;
+    const card = document.createElement('button');
+    card.className = 'person-card';
+    card.dataset.personId = p.id;
+    card.style.background = c.soft;
+    card.style.borderColor = c.bg;
+    card.onclick = () => logSwear(p.id);
+    card.innerHTML = `
+      <div class="avatar" style="background:${c.bg};">${p.name[0].toUpperCase()}</div>
+      <div class="card-name">${p.name}</div>
+      <div class="card-count" style="color:${count>0?c.text:'#ddd'};">${count}</div>
+      <div class="card-fine" style="color:${count>0?c.bg:'#ddd'};">${count>0?fmtKr(count,fine):'0 kr'}</div>
+      <div class="card-sub">denna vecka</div>`;
+    grid.appendChild(card);
+  });
+
+  renderUndoToast();
+
+  // Delete log button
+  const dlBtn = document.getElementById('delete-log-btn');
+  dlBtn.style.display = state.currentLogs.length > 0 ? 'block' : 'none';
+  dlBtn.textContent = showDeleteLog ? 'Dölj lista' : '✏️ Redigera / radera svärord';
+
+  // Delete log list
+  const dlBox = document.getElementById('delete-log-box');
+  const dlList = document.getElementById('delete-log-list');
+  dlBox.style.display = (showDeleteLog && state.currentLogs.length > 0) ? 'block' : 'none';
+  dlList.innerHTML = '';
+  if (showDeleteLog) {
+    [...state.currentLogs].reverse().forEach(l => {
+      const p = state.persons.find(x => x.id === l.personId); if (!p) return;
+      const c = col(p);
+      const row = document.createElement('div'); row.className = 'log-row';
+      row.innerHTML = `<div class="log-dot" style="background:${c.bg};"></div>
+        <span class="log-name" style="color:${c.text};">${p.name}</span>
+        <span class="log-time">${WEEK_DAYS[l.weekday||weekdayOf(l.ts)]} ${fmtDate(l.ts)} ${fmtTime(l.ts)}</span>
+        <button class="row-del-btn" title="Ändra tid" onclick="editLog('${l.id}')">✏️</button>
+        <button class="row-del-btn" title="Radera" onclick="deleteLog('${l.id}')">🗑</button>`;
+      dlList.appendChild(row);
+    });
+  }
+
+  // Today's log
+  const todayBox = document.getElementById('today-box');
+  const todayList = document.getElementById('today-list');
+  if (!showDeleteLog) {
+    const today = new Date().toDateString();
+    const todayLogs = [...state.currentLogs].reverse().filter(l => new Date(l.ts).toDateString()===today);
+    if (todayLogs.length > 0) {
+      todayBox.style.display = 'block';
+      todayList.innerHTML = '';
+      todayLogs.slice(0,8).forEach(l => {
+        const p = state.persons.find(x => x.id === l.personId); if (!p) return;
+        const c = col(p);
+        const row = document.createElement('div'); row.className = 'log-row';
+        row.innerHTML = `<div class="log-dot" style="background:${c.bg};"></div>
+          <span class="log-name" style="color:${c.text};">${p.name}</span>
+          <span class="log-time">${WEEK_DAYS[weekdayOf(l.ts)]} ${fmtTime(l.ts)}</span>`;
+        todayList.appendChild(row);
+      });
+    } else { todayBox.style.display = 'none'; }
+  } else { todayBox.style.display = 'none'; }
+}
+
+function renderUndoToast() {
+  const toast = document.getElementById('undo-toast');
+  if (!undoEntry) { toast.style.display = 'none'; return; }
+  const p = state.persons.find(x => x.id === undoEntry.personId);
+  const c = p ? col(p) : COLORS[0];
+  toast.style.display = 'flex';
+  toast.style.borderColor = c.bg;
+  toast.innerHTML = `<span>Registrerade svordom för <strong style="color:${c.text};">${p?p.name:'?'}</strong></span>
+    <button class="undo-btn" style="color:${c.text};" onclick="undoLast()">↩ Ångra</button>`;
+}
+
+function renderManage() {
+  const fine = state.finePerSwear;
+  document.getElementById('fine-pill').textContent = fine + ' kr ✏️';
+  const atc = getAllTimeCounts();
+  const list = document.getElementById('manage-list');
+  const empty = document.getElementById('manage-empty');
+  list.innerHTML = '';
+  if (state.persons.length === 0) { empty.style.display='block'; } else { empty.style.display='none'; }
+  state.persons.forEach(p => {
+    const c = col(p); const total = atc[p.id]||0;
+    const card = document.createElement('div');
+    card.className = 'manage-card';
+    card.style.background = c.soft; card.style.borderColor = c.bg;
+    card.innerHTML = `
+      <div class="avatar" style="background:${c.bg};width:44px;height:44px;font-size:20px;">${p.name[0].toUpperCase()}</div>
+      <div style="flex:1;">
+        <div style="font-weight:800;font-size:16px;">${p.name}</div>
+        <div style="font-size:12px;color:#aaa;">${total} svärord · ${fmtKr(total,fine)}</div>
+      </div>
+      <button class="edit-btn" onclick="startEditPerson('${p.id}')" title="Ändra namn">✏️</button>
+      <button class="del-btn" onclick="removePerson('${p.id}')" title="Ta bort">🗑️</button>`;
+    list.appendChild(card);
+  });
+  document.getElementById('clear-week-btn').style.display = state.currentLogs.length > 0 ? 'block' : 'none';
+}
+
+function renderStats() {
+  const allLogs = [...state.currentLogs, ...state.archivedWeeks.flatMap(w=>w.logs)];
+  const fine = state.finePerSwear;
+
+  // ── Heatmap ──
+  const heatWrap = document.getElementById('heatmap-wrap');
+  const heatEmpty = document.getElementById('heatmap-empty');
+  if (allLogs.length === 0) {
+    heatEmpty.style.display='block'; heatWrap.style.display='none';
+  } else {
+    heatEmpty.style.display='none'; heatWrap.style.display='block';
+    const grid7x24 = Array.from({length:7},()=>new Array(24).fill(0));
+    allLogs.forEach(l => { if(grid7x24[l.weekday]) grid7x24[l.weekday][l.hour] = (grid7x24[l.weekday][l.hour]||0)+1; });
+    const maxH = Math.max(...grid7x24.flat(), 1);
+    let html = '<div class="heat-hour-row"><div class="heat-hour-spacer"></div>';
+    [0,3,6,9,12,15,18,21].forEach(h => { html += `<div class="heat-hour-label">${String(h).padStart(2,'0')}</div>`; });
+    html += '</div>';
+    [1,2,3,4,5,6,0].forEach(dayIdx => {
+      html += `<div class="heat-row"><div class="heat-day-label">${WEEK_DAYS[dayIdx]}</div><div class="heat-cells">`;
+      for (let h=0;h<24;h++) {
+        const v = grid7x24[dayIdx][h]; const intensity = v/maxH;
+        const bg = intensity===0 ? '#F5F0EA' : `rgba(255,107,107,${(0.15+intensity*0.85).toFixed(2)})`;
+        html += `<div class="heat-cell" style="background:${bg};" title="${v} st">${v>0&&intensity>0.5?'<span class="heat-num">'+v+'</span>':''}</div>`;
+      }
+      html += '</div></div>';
+    });
+    html += '<div class="heat-legend"><span class="legend-label">Ingen</span>';
+    [0.15,0.35,0.55,0.75,1].forEach(o => { html += `<div class="legend-cell" style="background:rgba(255,107,107,${o});"></div>`; });
+    html += '<span class="legend-label">Mest</span></div>';
+    heatWrap.innerHTML = html;
+  }
+
+  // All-time bars
+  const atc = getAllTimeCounts();
+  const atBars = document.getElementById('alltime-bars');
+  atBars.innerHTML = '';
+  if (state.persons.length > 0) {
+    const sorted = [...state.persons].sort((a,b)=>atc[a.id]-atc[b.id]);
+    const maxV = Math.max(...sorted.map(p=>atc[p.id]),1);
+    sorted.forEach((p,i) => {
+      const c = col(p); const total = atc[p.id]||0;
+      const row = document.createElement('div'); row.className = 'bar-row';
+      row.innerHTML = `${i===0?'<span style="font-size:16px;">⭐</span>':'<div style="width:20px;"></div>'}
+        <div class="bar-avatar" style="background:${c.bg};">${p.name[0]}</div>
+        <div class="bar-name">${p.name}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(total/maxV)*100}%;background:${c.bg};"></div></div>
+        <div class="bar-num" style="color:${c.text};">${total}</div>
+        <div class="bar-fine" style="color:${c.text};">${fmtKr(total,fine)}</div>`;
+      atBars.appendChild(row);
+    });
+  }
+
+  // ── Weekday chart ──
+  const weekdayTotals = Array.from({length:7},(_,i)=>allLogs.filter(l=>l.weekday===i).length);
+  const maxWd = Math.max(...weekdayTotals,1);
+  const wdEmpty = document.getElementById('weekday-empty');
+  const wdChart = document.getElementById('wd-chart');
+  if (allLogs.length===0) { wdEmpty.style.display='block'; wdChart.style.display='none'; }
+  else {
+    wdEmpty.style.display='none'; wdChart.style.display='flex';
+    wdChart.innerHTML = '';
+    [1,2,3,4,5,6,0].forEach(i => {
+      const v=weekdayTotals[i]; const pct=(v/maxWd)*100; const isMax=v===maxWd&&v>0;
+      const col = document.createElement('div'); col.className='wd-col';
+      col.innerHTML = `<div class="wd-count">${v}</div>
+        <div class="wd-bar" style="height:${Math.max(pct*1.2,4)}px;background:${isMax?'#FF6B6B':'#F5C5B0'};"></div>
+        <div class="wd-label" style="font-weight:${isMax?800:500};color:${isMax?'#FF6B6B':'#999'};">${WEEK_DAYS[i]}</div>
+        ${isMax?'<div style="font-size:14px;">🔥</div>':''}`;
+      wdChart.appendChild(col);
+    });
+  }
+
+  // Hour chart
+  const hourTotals = Array.from({length:24},(_,h)=>allLogs.filter(l=>l.hour===h).length);
+  const maxHour = Math.max(...hourTotals,1);
+  const hChart = document.getElementById('hour-chart');
+  hChart.innerHTML = '';
+  hourTotals.forEach((v,h) => {
+    const pct=(v/maxHour)*100; const isPeak=v===Math.max(...hourTotals)&&v>0;
+    const col = document.createElement('div'); col.className='hour-col';
+    col.title = h+':00 – '+v+' st';
+    col.innerHTML = `<div class="hour-bar" style="height:${Math.max(pct*.8,2)}px;background:${isPeak?'#FFB830':'#F5DEB3'};"></div>
+      ${h%6===0?'<div class="hour-label">'+String(h).padStart(2,'0')+'</div>':''}`;
+    hChart.appendChild(col);
+  });
+  const insightBox = document.getElementById('insight-box');
+  if (allLogs.length > 0) {
+    const peakHour = hourTotals.indexOf(Math.max(...hourTotals));
+    const peakDay = WEEK_DAYS_FULL[weekdayTotals.indexOf(Math.max(...weekdayTotals))];
+    insightBox.style.display='block';
+    insightBox.innerHTML = `🔥 Mest aktiv tid: <strong>${String(peakHour).padStart(2,'0')}:00</strong> på <strong>${peakDay}</strong>`;
+  } else { insightBox.style.display='none'; }
+
+  // ── Archive ──
+  const archEmpty = document.getElementById('archive-empty');
+  const archList = document.getElementById('archive-list');
+  archList.innerHTML = '';
+  if (state.archivedWeeks.length===0) { archEmpty.style.display='block'; return; }
+  archEmpty.style.display='none';
+  state.archivedWeeks.forEach(week => {
+    const wc = {}; week.personSnapshot.forEach(p=>wc[p.id]=0);
+    week.logs.forEach(l=>{ if(wc[l.personId]!==undefined) wc[l.personId]+=1; });
+    const wFine = week.finePerSwear||fine;
+    const weekTotal = week.logs.length;
+    const wSorted = [...week.personSnapshot].sort((a,b)=>wc[a.id]-wc[b.id]);
+    const maxC = Math.max(...Object.values(wc),1);
+    const card = document.createElement('div'); card.className='archive-card';
+    const bodyId = 'arch-body-'+week.id;
+    card.innerHTML = `
+      <button class="archive-header" onclick="toggleArchive('${bodyId}')">
+        <div>
+          <div class="archive-week-label">${week.label}</div>
+          ${week.winner?`<div class="archive-winner">⭐ ${week.winner.name} vann</div>`:''}
+        </div>
+        <div class="archive-meta">
+          <div style="text-align:right;">
+            <div class="archive-total">${weekTotal} st</div>
+            <div class="archive-fine">${fmtKr(weekTotal,wFine)}</div>
+          </div>
+          <span style="color:#ccc;" id="arch-arrow-${week.id}">▼</span>
+        </div>
+      </button>
+      <div class="archive-body" id="${bodyId}"></div>`;
+    archList.appendChild(card);
+    // Populate body
+    const body = document.getElementById(bodyId);
+    let bodyHtml = wSorted.map((p,i) => {
+      const c = col(p); const cnt = wc[p.id];
+      return `<div class="bar-row">
+        ${i===0?'<span style="font-size:14px;">⭐</span>':'<div style="width:20px;"></div>'}
+        <div class="bar-avatar" style="background:${c.bg};width:28px;height:28px;font-size:13px;">${p.name[0]}</div>
+        <div class="bar-name">${p.name}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(cnt/maxC)*100}%;background:${c.bg};"></div></div>
+        <div class="bar-num" style="color:${c.text};">${cnt}</div>
+        <div class="bar-fine" style="color:${c.text};">${fmtKr(cnt,wFine)}</div>
+      </div>`;
+    }).join('');
+    bodyHtml += '<div class="label" style="margin-top:14px;">Alla svärord</div>';
+    bodyHtml += '<div style="max-height:240px;overflow-y:auto;">';
+    [...week.logs].reverse().forEach(l => {
+      const p = week.personSnapshot.find(x=>x.id===l.personId); if(!p) return;
+      const c = col(p);
+      bodyHtml += `<div class="log-row">
+        <div class="log-dot" style="background:${c.bg};"></div>
+        <span class="log-name" style="color:${c.text};">${p.name}</span>
+        <span class="log-time">${WEEK_DAYS[l.weekday||weekdayOf(l.ts)]} ${fmtDate(l.ts)} ${fmtTime(l.ts)}</span>
+      </div>`;
+    });
+    bodyHtml += '</div>';
+    body.innerHTML = bodyHtml;
+  });
+}
+
+function toggleArchive(bodyId) {
+  const body = document.getElementById(bodyId);
+  const weekId = bodyId.replace('arch-body-','');
+  const arrow = document.getElementById('arch-arrow-'+weekId);
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open');
+  if (arrow) arrow.textContent = isOpen ? '▼' : '▲';
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+load();
+render();
+
+// Sunday afternoon prompt
+if (isWeekOver() && state.currentLogs.length > 0) {
+  setTimeout(() => openModal('modal-new-week'), 1200);
+}
+</script>
+</body>
+</html>
